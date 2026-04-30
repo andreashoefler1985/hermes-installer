@@ -1,3 +1,7 @@
+<div align="center" style="margin-bottom: 20px;">
+  <img src="assets/hermes-bash.jpg" alt="Hermes Agent Installation" width="900" style="border-radius: 8px;">
+</div>
+
 <p align="center">
   <img src="https://img.shields.io/badge/Hermes_Agent-v0.11.0-6C4DFF?style=for-the-badge&logo=linux&logoColor=white" alt="Hermes Version">
   <img src="https://img.shields.io/badge/Ubuntu-24.04_✓-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" alt="Ubuntu">
@@ -9,10 +13,6 @@
   <img src="https://img.shields.io/badge/Production_Ready-✓-success?style=flat-square" alt="Status">
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License">
 </p>
-
-<div align="center" style="margin: 30px 0;">
-  <img src="assets/hermes-bash.jpg" alt="Hermes Agent Installation" width="800" style="border-radius: 8px;">
-</div>
 
 <h1 align="center">🚀 Hermes Agent — Robuster Ein-Klick-Installer</h1>
 
