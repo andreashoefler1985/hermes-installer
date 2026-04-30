@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=800">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  }
+  .window {
+    width: 780px;
+    background: #0d0d1a;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+  .titlebar {
+    background: #16162a;
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+  .title {
+    flex: 1; text-align: center; color: #666; font-size: 12px;
+    margin-right: 44px;
+  }
+  .terminal {
+    padding: 16px 20px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #c0c0d0;
+    overflow: hidden;
+  }
+  .prompt { color: #28c840; }
+  .cmd { color: #e0e0f0; }
+  .info { color: #6cb4ee; }
+  .success { color: #28c840; }
+  .warn { color: #febc2e; }
+  .dim { color: #666; }
+  .highlight { color: #a78bfa; }
+  .section { color: #e879f9; font-weight: bold; }
+  .cursor {
+    display: inline-block; width: 8px; height: 15px;
+    background: #fff; animation: blink 1s step-end infinite;
+    vertical-align: text-bottom; margin-left: 2px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .spacer { height: 8px; }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="dot r"></div>
+    <div class="dot y"></div>
+    <div class="dot g"></div>
+    <div class="title">root@server — ssh</div>
+  </div>
+  <div class="terminal">
+    <span class="prompt">root@server:~#</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/andreashoefler1985/hermes-installer/main/install.sh | bash</span>
+    <div class="spacer"></div>
+
+    <span class="section">╔══════════════════════════════════════╗</span>
+    <span class="section">║   Hermes Agent Installer            ║</span>
+    <span class="section">╚══════════════════════════════════════╝</span>
+    <div class="spacer"></div>
+
+    <span class="info">→</span> <span class="dim">Detected: linux (ubuntu 24.04)</span><br>
+    <span class="info">→</span> <span class="dim">Checking for uv package manager...</span><br>
+    <span class="success">✓</span> <span class="dim">uv installed (uv 0.11.8)</span><br>
+    <span class="info">→</span> <span class="dim">Checking Python 3.11...</span><br>
+    <span class="info">→</span> <span class="dim">Python 3.11 not found, installing via uv...</span><br>
+    <span class="success">✓</span> <span class="dim">Python installed: Python 3.11.15</span>
+    <div class="spacer"></div>
+
+    <span class="info">→</span> <span class="dim">Checking Git...</span><br>
+    <span class="success">✓</span> <span class="dim">Git 2.43.0 found</span><br>
+    <span class="info">→</span> <span class="dim">Checking Node.js 22...</span><br>
+    <span class="info">→</span> <span class="dim">Downloading Node.js v22 LTS...</span><br>
+    <span class="success">✓</span> <span class="dim">Node.js v22.14.0 installed</span>
+    <div class="spacer"></div>
+
+    <span class="info">→</span> <span class="dim">Installing system packages...</span><br>
+    <span class="info">→</span> <span class="dim">Checking ripgrep...</span><br>
+    <span class="success">✓</span> <span class="dim">ripgrep installed</span><br>
+    <span class="info">→</span> <span class="dim">Checking ffmpeg...</span><br>
+    <span class="success">✓</span> <span class="dim">ffmpeg installed</span>
+    <div class="spacer"></div>
+
+    <span class="info">→</span> <span class="dim">Installing Hermes Agent to /usr/local/lib/hermes-agent...</span><br>
+    <span class="info">→</span> <span class="dim">Cloning from GitHub...</span><br>
+    <span class="success">✓</span> <span class="dim">Repository cloned</span><br>
+    <span class="info">→</span> <span class="dim">Creating virtual environment (.venv)...</span><br>
+    <span class="success">✓</span> <span class="dim">Python dependencies installed</span>
+    <div class="spacer"></div>
+
+    <span class="info">→</span> <span class="dim">Installing browser dependencies (Playwright)...</span><br>
+    <span class="success">✓</span> <span class="dim">Chromium dependencies ready</span>
+    <div class="spacer"></div>
+
+    <span class="info">→</span> <span class="dim">Syncing community skills...</span><br>
+    <span class="dim">  + autonomous-ai-agents</span><br>
+    <span class="dim">  + creative</span><br>
+    <span class="dim">  + cyber-specialist</span><br>
+    <span class="dim">  + devops</span><br>
+    <span class="dim">  + software-development</span><br>
+    <span class="dim">  + ... and 82 more</span><br>
+    <span class="success">✓</span> <span class="dim">87 skills synced to ~/.hermes/skills/</span>
+    <div class="spacer"></div>
+
+    <span class="section">┌──────────────────────────────────────┐</span>
+    <span class="section">│     ✓ Installation Complete!         │</span>
+    <span class="section">└──────────────────────────────────────┘</span>
+    <div class="spacer"></div>
+
+    <span class="dim">📁 Your files:</span><br>
+    <span class="dim">   Config:   ~/.hermes/config.yaml</span><br>
+    <span class="dim">   API Keys: ~/.hermes/.env</span><br>
+    <span class="dim">   Code:     /usr/local/lib/hermes-agent</span>
+    <div class="spacer"></div>
+
+    <span class="highlight">🚀 Commands:</span><br>
+    <span class="dim">   hermes setup      Configure API keys</span><br>
+    <span class="dim">   hermes            Start chatting</span><br>
+    <span class="dim">   hermes config     View configuration</span>
+    <div class="spacer"></div>
+
+    <span class="success">⚡ 'hermes' is ready to use.</span>
+    <div class="spacer"></div>
+
+    <span class="prompt">root@server:~#</span> <span class="cmd">hermes</span><span class="cursor"></span>
+  </div>
+</div>
+</body>
+</html>
