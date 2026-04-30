@@ -10,6 +10,10 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License">
 </p>
 
+<div align="center" style="margin: 30px 0;">
+  <img src="assets/hermes-bash.jpg" alt="Hermes Agent Installation" width="800" style="border-radius: 8px;">
+</div>
+
 <h1 align="center">🚀 Hermes Agent — Robuster Ein-Klick-Installer</h1>
 
 <p align="center">
