@@ -2106,7 +2106,7 @@ hardening_hermes_config() {
     cat >> "$CONFIG_FILE" << 'HERMESCONFIG'
 
 # ═══════════════════════════════════════════════════════════════
-# Security Hardening (auto-added by installer --with-hardening)
+# Security Hardening (auto-added by installer)
 # ═══════════════════════════════════════════════════════════════
 
 # Prompt Injection Protection

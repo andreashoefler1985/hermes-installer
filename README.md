@@ -33,40 +33,43 @@ curl -fsSL https://raw.githubusercontent.com/andreashoefler1985/hermes-installer
 
 ---
 
-## 📋 Was ist Hermes Agent?
+## 📋 Was leistet dieser Installer?
 
-**Hermes Agent** von [Nous Research](https://github.com/NousResearch/hermes-agent) ist ein **Open-Source KI-Agent** — eigenständig, komplett auf deinem Server, ohne Cloud-Abhängigkeit.
+**Hermes Agent** von [Nous Research](https://github.com/NousResearch/hermes-agent) ist ein Open-Source KI-Agent — eigenständig auf deinem Server, ohne Cloud-Abhängigkeit.
 
-Dieser Installer **löst die echten Probleme des offiziellen Scripts:**
-
-### Häufige Fehler des Standard-Installers:
-
-Das offizielle Script schlägt auf vielen Systemen fehl:
+Das offizielle Script installiert Hermes. **Unser Installer deployed *und* sichert ab** — in einem Befehl.
 
 ```
-error: failed to open file `/root/uv.toml`: Permission denied (os error 13)
+curl -fsSL https://raw.githubusercontent.com/andreashoefler1985/hermes-installer/main/install.sh | bash
 ```
 
-**Warum?** Server mit geschütztem `/root`, Docker-Container, und Sicherheitsrichtlinien verursachen Blockaden. Das offizielle Script gibt auf und sagt: *„Installier Python selbst.”*
+Nach 3 Minuten läuft Hermes — und dein Server ist gehärtet:
 
-**Unser Script löst das automatisch.**
+| Was | Ohne Installer | Mit diesem Installer |
+|-----|---------------|---------------------|
+| Hermes | Manuell installieren + Fehler beheben | ✅ Out-of-the-box (alle OS) |
+| Firewall | Manuell UFW einrichten | ✅ Automatisch: nur SSH/HTTP/HTTPS |
+| Bruteforce-Schutz | Manuell fail2ban konfigurieren | ✅ 3 Fehlversuche = 1h Bann |
+| SSH | Manuell härten | ✅ Key-only, kein Root-Passwort |
+| Prompt-Injection | ❌ Kein Schutz | ✅ Tirith + Tool-Restriktionen |
+| Kernel | ❌ Defaults | ✅ kptr, ptrace, ASLR gehärtet |
+| Updates | ❌ Manuell | ✅ Tägliche Security-Patches |
+
+Dazu die technischen Probleme, die das offizielle Script auf vielen Servern scheitern lassen (Protected `/root`, fehlendes Python 3.11, Docker-in-Docker) — **alle automatisch gelöst.**
 
 ---
 
-## ✅ Das leistet dieser Installer:
+## ✅ Automatisch gelöste Probleme
 
 | Problem | Lösung |
 |---------|--------|
-| **Python 3.11 fehlt** | Automatisch installiert (5 verschiedene Fallback-Strategien) |
+| **Python 3.11 fehlt** | Automatisch installiert (5 Fallback-Strategien) |
 | **uv.toml Fehler** | Mit `UV_NO_CONFIG=1` umgangen |
 | **Ubuntu 24.04 hat nur 3.12** | DeadSnakes PPA automatisch hinzugefügt |
 | **Git/ripgrep/ffmpeg fehlen** | Alles erkannt und installiert |
 | **Falsche Shell-Paths** | ~/.local/bin oder /usr/local/bin automatisch konfiguriert |
 | **87+ Skills** | Nach Installation synchronisiert |
 | **Netzwerk isoliert?** | Optional: Bubblewrap-Sandbox |
-| **Server ungeschützt?** | Optional: `--with-hardening` (UFW, fail2ban, Kernel, AppArmor, Tirith) |
-
-**Ergebnis: Ein Befehl, alle Abhängigkeiten, Hermes startet sofort — abgesichert.**
 
 ---
 
@@ -178,19 +181,21 @@ hermes-sandbox curl https://api.example.com/data | jq .
 
 ---
 
-## 🛡️ Server-Hardening (`--with-hardening`)
+## 🛡️ Server-Hardening (automatisch)
 
-Für Produktivumgebungen: Mit einem Flag wird der **gesamte Server gehärtet** und Hermes gegen Prompt-Injection abgesichert:
+Das Hardening ist **standardmäßig aktiv** — kein Flag nötig. Jede Installation härtet den Server automatisch:
 
 ```bash
-curl -fsSL .../install.sh | bash -s -- --with-hardening
+curl -fsSL .../install.sh | bash
+# → Hermes installiert + Server gehärtet. Fertig.
 ```
 
-> ⚠️ **Nur als root** (`sudo`) — System-Hardening benötigt root-Rechte.
+> ⚠️ **Nur als root** — ohne root-Rechte wird Hardening übersprungen (Warnung erscheint).
 > 🔑 **SSH-Key erforderlich** — ohne Key wird Passwort-Auth NICHT deaktiviert.
-> 🔒 **Kein SSH-Lockout** — Port wird nicht geändert bei aktiver SSH-Verbindung.
+> 🔒 **Kein SSH-Lockout** — SSH-Port wird bei aktiver Verbindung nie geändert.
+> ↩️ **Rollback** immer möglich: `/tmp/hermes-hardening-rollback.sh`
 
-### Was `--with-hardening` macht:
+### Was das Hardening macht:
 
 #### System-Schutz
 
@@ -241,8 +246,8 @@ grep tirith ~/.hermes/config.yaml  # Prompt-Injection-Schutz
 | **Error Handling** | Abbbruch + Anleitung | Automatische Lösung |
 | **Ubuntu 24.04** | Python 3.12 ❌ | Python 3.11 ✅ |
 | **Sandbox** | ❌ Nicht vorhanden | ✅ `--with-sandbox` |
-| **Server-Hardening** | ❌ Nicht vorhanden | ✅ `--with-hardening` |
-| **Prompt-Injection-Schutz** | ❌ | ✅ Tirith + Tool-Restriktionen |
+| **Server-Hardening** | ❌ Manuell nötig | ✅ Automatisch (UFW, fail2ban, Kernel) |
+| **Prompt-Injection-Schutz** | ❌ Nicht vorhanden | ✅ Tirith + Tool-Restriktionen |
 | **Fehlerausgabe** | Cryptic | Verständlich |
 
 ---
@@ -265,14 +270,13 @@ grep tirith ~/.hermes/config.yaml  # Prompt-Injection-Schutz
 ## ⚙️ Installer-Optionen
 
 ```bash
-# Beispiel: Mit Sandbox, Hardening und skipped Setup
-curl -fsSL .../install.sh | bash -s -- --with-sandbox --with-hardening --skip-setup
+# Beispiel: Mit Sandbox und skipped Setup
+curl -fsSL .../install.sh | bash -s -- --with-sandbox --skip-setup
 ```
 
 | Option | Wirkung |
 |--------|---------|
 | `--with-sandbox` | Bubblewrap-Sandbox installieren |
-| `--with-hardening` | Server-Hardening (UFW, fail2ban, Kernel, AppArmor, Tirith) |
 | `--skip-setup` | Setup-Wizard nicht ausführen |
 | `--no-venv` | System-Python nutzen (nicht empfohlen) |
 | `--branch NAME` | Alternativen Branch installieren |
@@ -291,7 +295,7 @@ hermes-sandbox cmd        # Isoliert ausführen
 hermes gateway install    # Telegram/Discord/WhatsApp/Cron
 hermes update             # Auf neueste Version updaten
 
-# Verifikation (nach --with-hardening)
+# Verifikation (nach der Installation)
 ufw status verbose        # Firewall prüfen
 fail2ban-client status    # Bruteforce-Schutz prüfen
 sudo aa-status | grep herm # AppArmor-Profil prüfen
