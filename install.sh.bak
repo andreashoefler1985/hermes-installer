@@ -53,6 +53,7 @@ ROOT_FHS_LAYOUT=false
 USE_VENV=true
 RUN_SETUP=true
 WITH_SANDBOX=false
+WITH_HARDENING=false
 BRANCH="main"
 
 # Detect non-interactive mode (e.g. curl | bash)
@@ -92,6 +93,10 @@ while [[ $# -gt 0 ]]; do
             WITH_SANDBOX=true
             shift
             ;;
+        --with-hardening)
+            WITH_HARDENING=true
+            shift
+            ;;
         -h|--help)
             echo "Hermes Agent Installer"
             echo ""
@@ -101,6 +106,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-venv      Don't create virtual environment"
             echo "  --skip-setup   Skip interactive setup wizard"
             echo "  --with-sandbox Install bubblewrap sandbox (secure command execution)"
+            echo "  --with-hardening Apply system hardening (UFW, fail2ban, kernel, AppArmor)"
             echo "  --branch NAME  Git branch to install (default: main)"
             echo "  --dir PATH     Installation directory"
             echo "                   default (non-root):  ~/.hermes/hermes-agent"
@@ -1685,9 +1691,6 @@ print_success() {
         echo ""
     fi
 
-    echo -e "   ${GREEN}🛡️  Hardening${NC}           UFW, fail2ban, AppArmor, kernel, Tirith"
-    echo ""
-
     echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
     echo ""
     if [ "$DISTRO" = "termux" ]; then
@@ -1740,424 +1743,7 @@ print_success() {
 }
 
 # ============================================================================
-# Hardening Functions
-# ============================================================================
-# Applies UFW, fail2ban, kernel hardening, unattended-upgrades, SSH hardening,
-# and Hermes-specific security configuration.
-#
-# SAFETY: NEVER locks out SSH. Checks:
-#   1. SSH key exists before disabling password auth
-#   2. Adds UFW allow rule for SSH port BEFORE enabling UFW
-#   3. Does NOT change SSH port when running via SSH
-#   4. Creates rollback script at /tmp/hermes-hardening-rollback.sh
-# ============================================================================
-
-hardening_system() {
-    # Only root can harden the system
-    if [ "$(id -u)" != "0" ]; then
-        log_warn "System hardening requires root. Skipping."
-        log_info "Re-run with sudo to enable protection."
-        return 0
-    fi
-
-    # ─── Detect if running via SSH ───
-    local IS_SSH=false
-    if [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_TTY:-}" ] || [ -n "${SSH_CLIENT:-}" ]; then
-        IS_SSH=true
-        log_info "Detected SSH session — will NOT change SSH port to prevent lockout"
-    fi
-
-    # ─── Check SSH key exists ───
-    local HAS_SSH_KEY=false
-    local AUTH_KEYS_FILE=""
-    if [ "$(id -u)" = "0" ]; then
-        AUTH_KEYS_FILE="/root/.ssh/authorized_keys"
-    else
-        AUTH_KEYS_FILE="$HOME/.ssh/authorized_keys"
-    fi
-    if [ -f "$AUTH_KEYS_FILE" ] && [ -s "$AUTH_KEYS_FILE" ]; then
-        HAS_SSH_KEY=true
-        log_success "SSH key found — safe to harden SSH"
-    else
-        log_warn "No SSH authorized_keys found! Will NOT disable password auth."
-        log_warn "Add your SSH key first: ssh-copy-id $(whoami)@$(hostname -I | awk '{print $1}')"
-    fi
-
-    # ─── Create rollback script ───
-    cat > /tmp/hermes-hardening-rollback.sh << 'ROLLBACK'
-#!/bin/bash
-# Rollback Hermes hardening — restores pre-hardening state
-echo "Rolling back Hermes hardening..."
-set -e
-
-# Disable UFW
-if command -v ufw &>/dev/null; then
-    ufw disable 2>/dev/null && echo "[✓] UFW disabled" || echo "[!] UFW was not enabled"
-fi
-
-# Stop fail2ban
-if systemctl is-active --quiet fail2ban 2>/dev/null; then
-    systemctl stop fail2ban 2>/dev/null && echo "[✓] fail2ban stopped" || true
-fi
-
-# Restore SSH config from backup
-if [ -f /etc/ssh/sshd_config.bak.hermes ]; then
-    cp /etc/ssh/sshd_config.bak.hermes /etc/ssh/sshd_config
-    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
-    echo "[✓] SSH config restored from backup"
-fi
-
-# Remove AppArmor profile
-if [ -f /etc/apparmor.d/usr.local.bin.hermes ]; then
-    aa-disable /etc/apparmor.d/usr.local.bin.hermes 2>/dev/null || true
-    rm -f /etc/apparmor.d/usr.local.bin.hermes
-    echo "[✓] AppArmor profile removed"
-fi
-
-echo "Rollback complete."
-ROLLBACK
-    chmod +x /tmp/hermes-hardening-rollback.sh
-
-    # ═══════════════════════════════════════════════════════════════
-    # 1. UFW Firewall
-    # ═══════════════════════════════════════════════════════════════
-    log_info "Setting up UFW firewall..."
-
-    # Detect current SSH port
-    local SSH_PORT=22
-    if [ -f /etc/ssh/sshd_config ]; then
-        local DETECTED_PORT
-        DETECTED_PORT=$(grep -E "^Port [0-9]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
-        if [ -n "$DETECTED_PORT" ]; then
-            SSH_PORT="$DETECTED_PORT"
-        fi
-    fi
-
-    if ! command -v ufw &>/dev/null; then
-        apt-get update -qq && apt-get install -y -qq ufw
-    fi
-
-    # CRITICAL: Allow SSH BEFORE enabling
-    ufw --force reset
-    ufw default deny incoming
-    ufw default allow outgoing
-    ufw allow "$SSH_PORT"/tcp comment "SSH"
-    log_success "UFW: SSH port $SSH_PORT allowed"
-
-    # If gateway will be used, open 80/443
-    ufw allow 80/tcp comment "HTTP (Hermes gateway)"
-    ufw allow 443/tcp comment "HTTPS (Hermes gateway)"
-
-    ufw --force enable
-    log_success "UFW enabled (default deny incoming, allow SSH:$SSH_PORT, HTTP, HTTPS)"
-
-    # ═══════════════════════════════════════════════════════════════
-    # 2. Fail2Ban
-    # ═══════════════════════════════════════════════════════════════
-    log_info "Setting up fail2ban..."
-
-    if ! command -v fail2ban-client &>/dev/null; then
-        apt-get update -qq && apt-get install -y -qq fail2ban
-    fi
-
-    cat > /etc/fail2ban/jail.local << JAIL
-[DEFAULT]
-bantime = 3600
-findtime = 600
-maxretry = 3
-
-[sshd]
-enabled = true
-port = ${SSH_PORT}
-maxretry = 3
-JAIL
-
-    systemctl enable --now fail2ban
-    log_success "fail2ban enabled (SSH protection on port $SSH_PORT)"
-
-    # ═══════════════════════════════════════════════════════════════
-    # 3. SSH Hardening
-    # ═══════════════════════════════════════════════════════════════
-    log_info "Hardening SSH configuration..."
-
-    # Backup original
-    if [ ! -f /etc/ssh/sshd_config.bak.hermes ]; then
-        cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.hermes
-    fi
-
-    # Only disable password auth if SSH key exists
-    if [ "$HAS_SSH_KEY" = true ]; then
-        sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-        log_success "SSH: Password authentication disabled (key-based only)"
-    else
-        log_warn "SSH: Password auth NOT disabled (no key found)"
-    fi
-
-    # Disable root login with password
-    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-
-    # Only change port if NOT connected via SSH
-    if [ "$IS_SSH" = false ]; then
-        sed -i "s/^#\?Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
-        log_info "SSH port: $SSH_PORT (not changed — already configured)"
-    else
-        log_info "SSH port: kept at $SSH_PORT (SSH session active)"
-    fi
-
-    # General SSH hardening
-    sed -i 's/^#\?ClientAliveInterval.*/ClientAliveInterval 300/' /etc/ssh/sshd_config
-    sed -i 's/^#\?ClientAliveCountMax.*/ClientAliveCountMax 2/' /etc/ssh/sshd_config
-    sed -i 's/^#\?MaxAuthTries.*/MaxAuthTries 3/' /etc/ssh/sshd_config
-    sed -i 's/^#\?X11Forwarding.*/X11Forwarding no/' /etc/ssh/sshd_config
-    sed -i 's/^#\?AllowAgentForwarding.*/AllowAgentForwarding no/' /etc/ssh/sshd_config
-    sed -i 's/^#\?AllowTcpForwarding.*/AllowTcpForwarding no/' /etc/ssh/sshd_config
-
-    # Apply
-    if sshd -t 2>/dev/null; then
-        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
-        log_success "SSH hardened and restarted"
-    else
-        log_error "SSH config syntax error! Restoring backup..."
-        cp /etc/ssh/sshd_config.bak.hermes /etc/ssh/sshd_config
-        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
-        log_error "SSH restored to original. Check /etc/ssh/sshd_config manually."
-    fi
-
-    # ═══════════════════════════════════════════════════════════════
-    # 4. Kernel Hardening
-    # ═══════════════════════════════════════════════════════════════
-    log_info "Applying kernel hardening..."
-
-    cat > /etc/sysctl.d/99-hermes-hardening.conf << 'KERNEL'
-# Network hardening
-net.ipv4.tcp_syncookies = 1
-net.ipv4.ip_forward = 0
-net.ipv4.conf.all.accept_source_route = 0
-net.ipv4.conf.default.accept_source_route = 0
-net.ipv4.conf.all.accept_redirects = 0
-net.ipv4.conf.default.accept_redirects = 0
-net.ipv4.conf.all.secure_redirects = 0
-net.ipv4.conf.default.secure_redirects = 0
-net.ipv4.conf.all.log_martians = 1
-net.ipv4.icmp_echo_ignore_broadcasts = 1
-net.ipv6.conf.all.accept_source_route = 0
-net.ipv6.conf.all.accept_redirects = 0
-
-# Kernel hardening
-kernel.kptr_restrict = 2
-kernel.dmesg_restrict = 1
-kernel.yama.ptrace_scope = 2
-kernel.perf_event_paranoid = 3
-fs.suid_dumpable = 0
-fs.protected_symlinks = 1
-fs.protected_hardlinks = 1
-fs.protected_fifos = 2
-fs.protected_regular = 2
-kernel.randomize_va_space = 2
-KERNEL
-
-    sysctl --system >/dev/null 2>&1
-    log_success "Kernel parameters hardened"
-
-    # ═══════════════════════════════════════════════════════════════
-    # 5. Automatic Security Updates
-    # ═══════════════════════════════════════════════════════════════
-    log_info "Enabling automatic security updates..."
-
-    if ! dpkg -l unattended-upgrades >/dev/null 2>&1; then
-        apt-get install -y -qq unattended-upgrades
-    fi
-
-    cat > /etc/apt/apt.conf.d/50unattended-upgrades << 'UNATTENDED'
-Unattended-Upgrade::Allowed-Origins {
-    "${distro_id}:${distro_codename}-security";
-    "${distro_id}ESMApps:${distro_codename}-apps-security";
-    "${distro_id}ESM:${distro_codename}-infra-security";
-};
-Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
-Unattended-Upgrade::Remove-Unused-Dependencies "true";
-Unattended-Upgrade::Automatic-Reboot "true";
-Unattended-Upgrade::Automatic-Reboot-Time "03:00";
-UNATTENDED
-
-    cat > /etc/apt/apt.conf.d/20auto-upgrades << 'AUTO'
-APT::Periodic::Update-Package-Lists "1";
-APT::Periodic::Download-Upgradeable-Packages "1";
-APT::Periodic::AutocleanInterval "7";
-APT::Periodic::Unattended-Upgrade "1";
-AUTO
-
-    systemctl restart unattended-upgrades 2>/dev/null || true
-    log_success "Automatic security updates enabled (daily, reboot at 03:00)"
-
-    # ═══════════════════════════════════════════════════════════════
-    # 6. AppArmor Profile (if available)
-    # ═══════════════════════════════════════════════════════════════
-    if command -v apparmor_parser &>/dev/null; then
-        log_info "Creating AppArmor profile for Hermes..."
-
-        cat > /etc/apparmor.d/usr.local.bin.hermes << 'AAPROFILE'
-#include <tunables/global>
-
-profile hermes /usr/local/bin/hermes flags=(attach_disconnected) {
-    #include <abstractions/base>
-    #include <abstractions/bash>
-    #include <abstractions/consoles>
-    #include <abstractions/nameservice>
-    #include <abstractions/ssl_certs>
-    #include <abstractions/openssl>
-    #include <abstractions/python>
-
-    # Hermes directories
-    owner /root/.hermes/** rw,
-    owner /root/.hermes/ rw,
-    owner /home/*/.hermes/** rw,
-    owner /home/*/.hermes/ rw,
-
-    # Hermes binary
-    /usr/local/lib/hermes-agent/** mr,
-    /usr/local/bin/hermes rix,
-
-    # Python
-    /usr/bin/python3* rix,
-    /usr/lib/python3*/** mr,
-
-    # System
-    /proc/* r,
-    /proc/sys/kernel/hostname r,
-    /proc/sys/net/** r,
-    /sys/devices/system/cpu/** r,
-    /etc/ r,
-    /etc/** r,
-    /dev/urandom r,
-    /dev/null rw,
-    /dev/tty rw,
-    /dev/pts/* rw,
-
-    # Network (LLM API access)
-    network inet stream,
-    network inet6 stream,
-    network inet dgram,
-    network inet6 dgram,
-
-    # Temp
-    /tmp/** rw,
-
-    # Deny dangerous paths
-    deny /etc/shadow rwxlkm,
-    deny /etc/sudoers rwxlkm,
-    deny /root/.ssh/** rwxlkm,
-    deny /home/*/.ssh/** rwxlkm,
-    deny /home/*/.aws/** rwxlkm,
-    deny /usr/bin/sudo x,
-    deny /usr/bin/su x,
-    deny /usr/bin/mount x,
-    deny /usr/bin/umount x,
-    deny /usr/sbin/* x,
-    deny /usr/bin/chmod x,
-    deny /usr/bin/chown x,
-
-    # Deny dangerous capabilities
-    deny capability sys_admin,
-    deny capability sys_ptrace,
-    deny capability sys_module,
-    deny capability net_admin,
-    deny capability dac_override,
-    deny capability setuid,
-    deny capability setgid,
-}
-AAPROFILE
-
-        apparmor_parser -r /etc/apparmor.d/usr.local.bin.hermes 2>/dev/null || true
-        aa-enforce /etc/apparmor.d/usr.local.bin.hermes 2>/dev/null || true
-        log_success "AppArmor profile created and enforced"
-    else
-        log_info "AppArmor not available on this system — skipping"
-    fi
-
-    log_success "System hardening complete"
-    echo ""
-    log_info "Rollback script: /tmp/hermes-hardening-rollback.sh"
-    echo ""
-}
-
-# Apply Hermes-specific security configuration (tirith, tool restrictions, audit logging)
-hardening_hermes_config() {
-
-    local CONFIG_FILE="$HERMES_HOME/config.yaml"
-
-    if [ ! -f "$CONFIG_FILE" ]; then
-        log_warn "config.yaml not found at $CONFIG_FILE — skipping Hermes security config"
-        return 0
-    fi
-
-    log_info "Applying Hermes security configuration..."
-
-    # Backup
-    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
-
-    # Check if tirith/security section already exists
-    if grep -q "tirith_enabled" "$CONFIG_FILE" 2>/dev/null; then
-        log_info "Security config already present — keeping existing"
-        return 0
-    fi
-
-    # Append security configuration
-    cat >> "$CONFIG_FILE" << 'HERMESCONFIG'
-
-# ═══════════════════════════════════════════════════════════════
-# Security Hardening (auto-added by installer --with-hardening)
-# ═══════════════════════════════════════════════════════════════
-
-# Prompt Injection Protection
-security:
-  tirith_enabled: true
-  website_blocklist:
-    - "pastebin.com"
-    - "requestbin."
-    - "webhook.site"
-    - "ngrok.io"
-    - "localtunnel.me"
-
-# Tool Restrictions (Principle of Least Privilege)
-# Disable tools that could be abused via prompt injection:
-#   browser    — prevents drive-by attacks and data exfiltration
-#   delegation — prevents subagent escape from sandbox
-#   cronjob    — prevents persistence and scheduled attacks
-#   image_gen  — prevents resource abuse
-tools:
-  disabled_toolsets:
-    - "browser"
-    - "delegation"
-    - "cronjob"
-    - "image_gen"
-
-# Context Compression (prevents overflow attacks)
-compression:
-  enabled: true
-  threshold: 0.40
-  target_ratio: 0.15
-
-# Session Checkpoints (rollback safety)
-checkpoints:
-  enabled: true
-  max_snapshots: 25
-
-# Audit Logging (track all tool calls and prompts)
-logging:
-  audit_tool_calls: true
-  audit_prompts: true
-HERMESCONFIG
-
-    log_success "Hermes security config applied:"
-    log_info "  ✓ Tirith prompt injection guard"
-    log_info "  ✓ Disabled tools: browser, delegation, cronjob, image_gen"
-    log_info "  ✓ Blocklist: pastebin, webhook.site, ngrok, localtunnel.me"
-    log_info "  ✓ Context compression (threshold: 40%)"
-    log_info "  ✓ Session checkpoints (max 25 snapshots)"
-    log_info "  ✓ Audit logging (tool calls + prompts)"
-    log_info "  Backup: ${CONFIG_FILE}.bak"
-}
+# Main
 # ============================================================================
 
 main() {
@@ -2171,7 +1757,6 @@ main() {
     check_node
     install_system_packages
     install_sandbox
-    hardening_system
 
     clone_repo
     setup_venv
@@ -2179,7 +1764,6 @@ main() {
     install_node_deps
     setup_path
     copy_config_templates
-    hardening_hermes_config
     run_setup_wizard
     maybe_start_gateway
 

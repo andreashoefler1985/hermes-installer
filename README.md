@@ -64,8 +64,9 @@ error: failed to open file `/root/uv.toml`: Permission denied (os error 13)
 | **Falsche Shell-Paths** | ~/.local/bin oder /usr/local/bin automatisch konfiguriert |
 | **87+ Skills** | Nach Installation synchronisiert |
 | **Netzwerk isoliert?** | Optional: Bubblewrap-Sandbox |
+| **Server ungeschützt?** | Optional: `--with-hardening` (UFW, fail2ban, Kernel, AppArmor, Tirith) |
 
-**Ergebnis: Ein Befehl, alle Abhängigkeiten, Hermes startet sofort.**
+**Ergebnis: Ein Befehl, alle Abhängigkeiten, Hermes startet sofort — abgesichert.**
 
 ---
 
@@ -177,6 +178,60 @@ hermes-sandbox curl https://api.example.com/data | jq .
 
 ---
 
+## 🛡️ Server-Hardening (`--with-hardening`)
+
+Für Produktivumgebungen: Mit einem Flag wird der **gesamte Server gehärtet** und Hermes gegen Prompt-Injection abgesichert:
+
+```bash
+curl -fsSL .../install.sh | bash -s -- --with-hardening
+```
+
+> ⚠️ **Nur als root** (`sudo`) — System-Hardening benötigt root-Rechte.
+> 🔑 **SSH-Key erforderlich** — ohne Key wird Passwort-Auth NICHT deaktiviert.
+> 🔒 **Kein SSH-Lockout** — Port wird nicht geändert bei aktiver SSH-Verbindung.
+
+### Was `--with-hardening` macht:
+
+#### System-Schutz
+
+| Schutz | Mechanismus | Effekt |
+|--------|-------------|--------|
+| 🧱 **UFW Firewall** | `default deny incoming` | Nur SSH, HTTP, HTTPS offen |
+| 🚫 **Fail2Ban** | 3 Fehlversuche = 1h Bann | Bruteforce-Schutz für SSH |
+| 🔑 **SSH-Hardening** | Key-only, kein Root-Passwort | Kein Passwort-Bruteforce möglich |
+| ⚙️ **Kernel-Hardening** | sysctl (kptr, ptrace, ASLR) | Kernel-Exploit-Mitigation |
+| 🔄 **Auto-Updates** | unattended-upgrades täglich | Sicherheitslücken automatisch geschlossen |
+| 🛡️ **AppArmor** | MAC-Profil für Hermes | Blockiert: sudo, mount, chmod, /etc/shadow, ~/.ssh |
+
+#### Prompt-Injection-Schutz (in Hermes)
+
+| Schutz | Mechanismus | Blockiert |
+|--------|-------------|-----------|
+| 🛡️ **Tirith** | Hermes-eigener Injection-Guard | Prompt-Injection-Patterns |
+| 🔧 **Tool-Restriktion** | browser, delegation, cronjob, image_gen deaktiviert | Drive-by, Subagent-Escape, Persistenz |
+| 🚫 **Domain-Blocklist** | pastebin.com, webhook.site, ngrok.io, localtunnel.me | Datenexfiltration |
+| 📦 **Context Compression** | threshold 40% | Overflow-Angriffe |
+| 💾 **Checkpoints** | 25 Snapshots | Rollback nach Manipulation |
+| 📋 **Audit Logging** | Alle Tool-Calls + Prompts | Forensische Nachverfolgung |
+
+### Rollback
+
+```bash
+# Falls was schiefgeht:
+/tmp/hermes-hardening-rollback.sh
+```
+
+### Verifikation nach Installation
+
+```bash
+ufw status verbose           # Firewall-Regeln prüfen
+fail2ban-client status       # Jail-Status
+sudo aa-status | grep hermes # AppArmor-Profil
+grep tirith ~/.hermes/config.yaml  # Prompt-Injection-Schutz
+```
+
+---
+
 ## 📊 Unser Installer vs. Offizieller
 
 | Feature | Offiziell | Unser Script |
@@ -186,6 +241,8 @@ hermes-sandbox curl https://api.example.com/data | jq .
 | **Error Handling** | Abbbruch + Anleitung | Automatische Lösung |
 | **Ubuntu 24.04** | Python 3.12 ❌ | Python 3.11 ✅ |
 | **Sandbox** | ❌ Nicht vorhanden | ✅ `--with-sandbox` |
+| **Server-Hardening** | ❌ Nicht vorhanden | ✅ `--with-hardening` |
+| **Prompt-Injection-Schutz** | ❌ | ✅ Tirith + Tool-Restriktionen |
 | **Fehlerausgabe** | Cryptic | Verständlich |
 
 ---
@@ -208,13 +265,14 @@ hermes-sandbox curl https://api.example.com/data | jq .
 ## ⚙️ Installer-Optionen
 
 ```bash
-# Beispiel: Mit Sandbox und skipped Setup
-curl -fsSL .../install.sh | bash -s -- --with-sandbox --skip-setup
+# Beispiel: Mit Sandbox, Hardening und skipped Setup
+curl -fsSL .../install.sh | bash -s -- --with-sandbox --with-hardening --skip-setup
 ```
 
 | Option | Wirkung |
 |--------|---------|
-| `--with-sandbox` | Bubblewrap installieren |
+| `--with-sandbox` | Bubblewrap-Sandbox installieren |
+| `--with-hardening` | Server-Hardening (UFW, fail2ban, Kernel, AppArmor, Tirith) |
 | `--skip-setup` | Setup-Wizard nicht ausführen |
 | `--no-venv` | System-Python nutzen (nicht empfohlen) |
 | `--branch NAME` | Alternativen Branch installieren |
@@ -232,6 +290,11 @@ hermes doctor             # Systemcheck
 hermes-sandbox cmd        # Isoliert ausführen
 hermes gateway install    # Telegram/Discord/WhatsApp/Cron
 hermes update             # Auf neueste Version updaten
+
+# Verifikation (nach --with-hardening)
+ufw status verbose        # Firewall prüfen
+fail2ban-client status    # Bruteforce-Schutz prüfen
+sudo aa-status | grep herm # AppArmor-Profil prüfen
 ```
 
 ---
